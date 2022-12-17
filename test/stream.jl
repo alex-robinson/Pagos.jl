@@ -209,7 +209,7 @@ function calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx)
     u = fill(0.0,n_u);
     b = fill(0.0,n_u);
 
-    use_dense = true;
+    use_dense = false;
 
     if use_dense
         A = fill(0.0,n_u,n_u);
@@ -247,7 +247,7 @@ function calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx)
 
             # Set the row in matrix A that the equation is being defined for:
             nr = (i-1)*ny + j
-
+            
 if use_dense
             # -- vx terms -- 
             
@@ -529,6 +529,7 @@ end
     end
 
     # Now A (dense), x and b have been populated
+    # Define sparse array A:
 
     if use_dense
         Asp = sparse(A);
@@ -549,20 +550,39 @@ end
 
     end
 
+    # Update velocity arrays with new solution
     for i = 1:nx
         for j = 1:ny
             n = ij2n_ux(i,j,nx,ny);
             ux[i,j] = unew[n];
-        end
-    end
-    for i = 1:nx
-        for j = 1:ny
             n = ij2n_uy(i,j,nx,ny);
             uy[i,j] = unew[n];
         end
     end
 
     return Asp, u, b
+end
+
+function calc_vel_diva_1D!(ux,H,H0,mu,beta_sl,dx,ρ,g,α)
+    #calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,dx)
+    
+    eta  = beta_sl*H0/mu; 
+    
+    rhs = ρ .* g .* (H[1:end-1] .+ H[2:end])./2 .* (diff(H)./dx .- α);
+    F2  = (H[1:end-1] .+ H[2:end]) ./ 2 ./ (3*eta);
+    B   = beta_sl ./ (1 .+ beta_sl .* F2);
+   
+    d0 = -B .- 4*eta*H[1:end-1]/dx^2 .- 4*eta*H[2:end]/dx^2;
+    dr = 4 * eta * H[2:end] / dx^2;
+    dl = 4 * eta * H[1:end-1] / dx^2;
+    #A = spdiags([dr d0 dl],[-1 0 1],N,N)'; 
+    A = spdiagm(-1 => dr, 0 => d0, 1 => dl);
+    #A[1,N] = dl[1];
+    #A[N,1] = dr[end];
+   
+    u = A\rhs;
+
+    return
 end
 
 function plot_out(var)
@@ -578,5 +598,10 @@ end
 # Test 
 A, u, b = calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx);
 println("ux, uy: ", extrema(ux), " | ", extrema(uy) )
+
+#ux1D = ux[:,2];
+#H1D  = H[:,2];
+#calc_vel_diva_1D!(ux1D[1:end-1],H1D,an["H0"],an["μ0"],an["β0"],dx,an["ρ"],an["g"],an["α"])
+#println("ux1D: ", extrema(ux1D[1:end-1]))
 
 plot_out(ux)
