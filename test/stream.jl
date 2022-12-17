@@ -201,15 +201,27 @@ function calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx)
     #
     #
 
-    m = 2*nx*ny
-    n = m; 
-    
+    n_terms = 9;
+    n_x     = 2*nx*ny;
+    n_sprs  = n_x*n_terms;
+
     # Populate dense array for now
-    A = zeros(n,m);
-    x = zeros(m);
-    b = zeros(m);
+    x = zeros(n_x);
+    b = zeros(n_x);
+
+    use_dense = true;
+
+    if use_dense
+        A = fill(0.0,n_x,n_x);
+    else
+        Ai = fill(0,  n_sprs);
+        Aj = fill(0,  n_sprs);
+        Av = fill(0.0,n_sprs);
+    end
 
     # Equation is being defined for acx-nodes (x-direction equation)
+
+    k = 0 
 
     for i in 1:nx 
         for j in 1:ny 
@@ -236,6 +248,7 @@ function calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx)
             # Set the row in matrix A that the equation is being defined for:
             nr = (i-1)*ny + j
 
+if use_dense
             # -- vx terms -- 
             
             # ux(i,j)
@@ -245,7 +258,7 @@ function calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx)
                         -1.0*inv_dydy*N_ab[i,j]
                         -1.0*inv_dydy*N_ab[i,jm1]
                         -β_acx[i,j];
-
+            
             # ux(i+1,j)
             n = ij2n_ux(ip1,j,nx,ny);
             A[nr,n] =    4.0*inv_dxdx*N_aa[ip1,j];
@@ -283,7 +296,76 @@ function calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx)
             n = ij2n_uy(i,jm1,nx,ny);
             A[nr,n] =    2.0*inv_dxdy*N_aa[i,j]
                         +1.0*inv_dxdy*N_ab[i,jm1];
-                
+
+else
+            # -- vx terms -- 
+            
+            # ux(i,j)
+            k = k+1;
+            Ai[k] = nr;
+            Aj[k] = ij2n_ux(i,j,nx,ny);
+            Av[k] = -4.0*inv_dxdx*N_aa[ip1,j]
+                    -4.0*inv_dxdx*N_aa[i,j]
+                    -1.0*inv_dydy*N_ab[i,j]
+                    -1.0*inv_dydy*N_ab[i,jm1]
+                    -β_acx[i,j];
+
+            # ux(i+1,j)
+            k = k+1;
+            Ai[k] = nr;
+            Aj[k] = ij2n_ux(ip1,j,nx,ny);
+            Av[k] =  4.0*inv_dxdx*N_aa[ip1,j];
+
+            # ux(i-1,j)  
+            k = k+1;
+            Ai[k] = nr;
+            Aj[k] = ij2n_ux(im1,j,nx,ny);
+            Av[k] =  4.0*inv_dxdx*N_aa[i,j];
+
+            # ux(i,j+1)
+            k = k+1;
+            Ai[k] = nr;
+            Aj[k] = ij2n_ux(i,jp1,nx,ny);
+            Av[k] =  1.0*inv_dydy*N_ab[i,j];
+
+            # ux(i,j-1)
+            k = k+1;
+            Ai[k] = nr;
+            Aj[k] = ij2n_ux(i,jm1,nx,ny);
+            Av[k] =  1.0*inv_dydy*N_ab[i,jm1];
+            
+            # -- vy terms -- 
+
+            # uy(i,j)
+            k = k+1;
+            Ai[k] = nr;
+            Aj[k] = ij2n_uy(i,j,nx,ny);
+            Av[k] = -2.0*inv_dxdy*N_aa[i,j]
+                    -1.0*inv_dxdy*N_ab[i,j];
+            
+            # uy(i+1,j)
+            k = k+1;
+            Ai[k] = nr;
+            Aj[k] = ij2n_uy(ip1,j,nx,ny);
+            Av[k] = -2.0*inv_dxdy*N_aa[ip1,j]
+                    +1.0*inv_dxdy*N_ab[i,j];
+            
+            # uy(i+1,j-1)
+            k = k+1;
+            Ai[k] = nr;
+            Aj[k] = ij2n_uy(ip1,jm1,nx,ny);
+            Av[k] = -2.0*inv_dxdy*N_aa[ip1,j]
+                    -1.0*inv_dxdy*N_ab[i,jm1];
+            
+            # uy(i,j-1)
+            k = k+1;
+            Ai[k] = nr;
+            Aj[k] = ij2n_uy(i,jm1,nx,ny);
+            Av[k] =  2.0*inv_dxdy*N_aa[i,j]
+                    +1.0*inv_dxdy*N_ab[i,jm1];
+             
+end
+
             # [x] value
             x[nr] = ux[i,j];
 
@@ -320,6 +402,7 @@ function calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx)
             # Set the row in matrix A that the equation is being defined for:
             nr = (i-1)*ny + j + nx*ny
 
+if use_dense
             # -- vy terms -- 
             
             # uy(i,j)
@@ -367,7 +450,75 @@ function calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx)
             n = ij2n_ux(im1,j,nx,ny);
             A[nr,n] =    2.0*inv_dxdy*N_aa[i,j]
                         +1.0*inv_dxdy*N_ab[im1,j];
+else
 
+            # -- vy terms -- 
+            
+            # uy(i,j)
+            k = k+1;
+            Ai[k] = nr;
+            Aj[k] = ij2n_uy(i,j,nx,ny);
+            Av[k] = -4.0*inv_dydy*N_aa[i,jp1]
+                    -4.0*inv_dydy*N_aa[i,j]
+                    -1.0*inv_dxdx*N_ab[i,j]
+                    -1.0*inv_dxdx*N_ab[im1,j]
+                    -β_acy[i,j]; 
+
+            # uy(i,j+1)
+            k = k+1;
+            Ai[k] = nr;
+            Aj[k] = ij2n_uy(i,jp1,nx,ny);
+            Av[k] =  4.0*inv_dydy*N_aa[i,jp1];  
+            
+            # uy(i,j-1)
+            k = k+1;
+            Ai[k] = nr;
+            Aj[k] = ij2n_uy(i,jm1,nx,ny);
+            Av[k] =  4.0*inv_dydy*N_aa[i,j];    
+            
+            # uy(i+1,j)
+            k = k+1;
+            Ai[k] = nr;
+            Aj[k] = ij2n_uy(ip1,j,nx,ny);
+            Av[k] =  1.0*inv_dxdx*N_ab[i,j];     
+            
+            # uy(i-1,j)
+            k = k+1;
+            Ai[k] = nr;
+            Aj[k] = ij2n_uy(im1,j,nx,ny);
+            Av[k] =  1.0*inv_dxdx*N_ab[im1,j];   
+            
+            # -- vx terms -- 
+
+            # ux(i,j)
+            k = k+1;
+            Ai[k] = nr;
+            Aj[k] = ij2n_ux(i,j,nx,ny);
+            Av[k] = -2.0*inv_dxdy*N_aa[i,j]
+                    -1.0*inv_dxdy*N_ab[i,j]; 
+
+            # ux(i,j+1)
+            k = k+1;
+            Ai[k] = nr;
+            Aj[k] = ij2n_ux(i,jp1,nx,ny);
+            Av[k] =  2.0*inv_dxdy*N_aa[i,jp1]
+                    +1.0*inv_dxdy*N_ab[i,j];
+
+            # ux(i-1,j+1)
+            k = k+1;
+            Ai[k] = nr;
+            Aj[k] = ij2n_ux(im1,jp1,nx,ny);
+            Av[k] = -2.0*inv_dxdy*N_aa[i,jp1]
+                    -1.0*inv_dxdy*N_ab[im1,j];
+            
+            # ux(i-1,j)
+            k = k+1;
+            Ai[k] = nr;
+            Aj[k] = ij2n_ux(im1,j,nx,ny);
+            Av[k] =  2.0*inv_dxdy*N_aa[i,j]
+                    +1.0*inv_dxdy*N_ab[im1,j];
+            
+end
             # [x] value
             x[nr] = uy[i,j];
 
@@ -379,25 +530,39 @@ function calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx)
 
     # Now A (dense), x and b have been populated
 
-    Asp = sparse(A);
+    if use_dense
+        Asp = sparse(A);
+    else
+        Asp = sparse(Ai,Aj,Av);
+    end
 
-    prob = LinearProblem(Asp, b);
-    sol = solve(prob);
+    use_linsolve = false
+
+    if use_linsolve
+        prob = LinearProblem(Asp, b);
+        sol = solve(prob);
+        xnew = sol.u;
+
+    else
+
+        xnew = Asp \ b;
+
+    end
 
     for i = 1:nx
         for j = 1:ny
             n = ij2n_ux(i,j,nx,ny);
-            ux[i,j] = sol.u[n];
+            ux[i,j] = xnew[n];
         end
     end
     for i = 1:nx
         for j = 1:ny
             n = ij2n_uy(i,j,nx,ny);
-            uy[i,j] = sol.u[n];
+            uy[i,j] = xnew[n];
         end
     end
 
-    return A, x, b
+    return Asp, x, b
 end
 
 function plot_out(var)
