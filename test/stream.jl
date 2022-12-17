@@ -202,17 +202,17 @@ function calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx)
     #
 
     n_terms = 9;
-    n_x     = 2*nx*ny;
-    n_sprs  = n_x*n_terms;
+    n_u     = 2*nx*ny;
+    n_sprs  = n_u*n_terms;
 
     # Populate dense array for now
-    x = zeros(n_x);
-    b = zeros(n_x);
+    u = fill(0.0,n_u);
+    b = fill(0.0,n_u);
 
     use_dense = true;
 
     if use_dense
-        A = fill(0.0,n_x,n_x);
+        A = fill(0.0,n_u,n_u);
     else
         Ai = fill(0,  n_sprs);
         Aj = fill(0,  n_sprs);
@@ -366,8 +366,8 @@ else
              
 end
 
-            # [x] value
-            x[nr] = ux[i,j];
+            # [u] value
+            u[nr] = ux[i,j];
 
             # [b] value 
             b[nr] = taud_acx[i,j];
@@ -519,8 +519,8 @@ else
                     +1.0*inv_dxdy*N_ab[im1,j];
             
 end
-            # [x] value
-            x[nr] = uy[i,j];
+            # [u] value
+            u[nr] = uy[i,j];
 
             # [b] value 
             b[nr] = taud_acy[i,j];
@@ -536,33 +536,33 @@ end
         Asp = sparse(Ai,Aj,Av);
     end
 
-    use_linsolve = false
+    use_linsolve = true
 
     if use_linsolve
-        prob = LinearProblem(Asp, b);
+        prob = LinearProblem(Asp, b; u0=u);
         sol = solve(prob);
-        xnew = sol.u;
+        unew = sol.u;
 
     else
 
-        xnew = Asp \ b;
+        unew = Asp \ b;
 
     end
 
     for i = 1:nx
         for j = 1:ny
             n = ij2n_ux(i,j,nx,ny);
-            ux[i,j] = xnew[n];
+            ux[i,j] = unew[n];
         end
     end
     for i = 1:nx
         for j = 1:ny
             n = ij2n_uy(i,j,nx,ny);
-            uy[i,j] = xnew[n];
+            uy[i,j] = unew[n];
         end
     end
 
-    return Asp, x, b
+    return Asp, u, b
 end
 
 function plot_out(var)
@@ -576,7 +576,7 @@ end
 
 
 # Test 
-A, x, b = calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx);
+A, u, b = calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx);
 println("ux, uy: ", extrema(ux), " | ", extrema(uy) )
 
 plot_out(ux)
