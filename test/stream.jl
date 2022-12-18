@@ -500,20 +500,3 @@ A, u, b = calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx);
 plot_out(ux)
 
 
-
-
-
-######
-# using ModelingToolkit, MethodOfLines, OrdinaryDiffEq, DomainSets
-
-# @parameters x y
-# @variables u(..) v(..)
-# Dx = Differential(x)
-# Dy = Differential(y)
-# Dxx = Differential(x)^2
-# Dyy = Differential(y)^2
-
-
-
-
-######
