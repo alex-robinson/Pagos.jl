@@ -89,7 +89,14 @@ function calc_driving_stress(H,z_srf,dx,dy,ρ,g)
 end
 
 
-# Function to calculate velocity 
+# Functions to calculate velocity 
+
+function calc_F_integral(visc_eff,H_ice,f_ice,zeta_aa,n)
+
+    # To do...
+    
+    return Fn
+end
 
 function ij2n_ux(i,j,nx,ny)
 

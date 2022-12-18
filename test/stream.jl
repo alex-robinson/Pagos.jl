@@ -59,10 +59,66 @@ function calc_vel_diva_1D!(ux,H,H0,mu,beta_sl,dx,ρ,g,α)
     return
 end
 
-function calc_F_integral(visc_eff,H_ice,f_ice,zeta_aa,n)
+function define_stream_schoof2006(dx;xmax=140e3,ymax=50e3,H0=1e3,rf=1e-16,α=1e-3,ρ=910.0,g=9.81,n_glen=3,W=25e3,m=1.55)
 
+    # Schoof (2006) domain - constant slope slab
 
-    return Fn
+    # Intialize domain 
+
+    # Define axes x,y ###
+
+    xmin = 0.0;
+    ymin = -ymax;
+
+    nx = Int(xmax/dx)+1;
+    ny = Int((ymax-ymin)/dx)+1;
+    
+    x0 = 0.0;
+    y0 = -(ny-1)/2*dx;
+
+    xc = [xmin + (i-1)*dx for i in 1:nx];
+    yc = [ymin + (i-1)*dx for i in 1:ny];
+
+    # ===== Intialize topography and set parameters =========
+
+    H = fill(H0,nx,ny);
+    
+    z_bed = fill(NaN,nx,ny);
+
+    for i = 1:nx
+        z_bed[i,:] .= 10000.0 .- α .* (xc[i] .- xmin);
+    end
+
+    # Define surface elevation 
+    z_srf = z_bed .+ H;
+
+    # Calculate analytical stream function to get tau_c and ux
+
+    #ux, tau_c = SSA_Schoof2006_analytical_solution_yelmo(y,α,H0,rf_const,W,m,n_glen,ρ,g);
+    ux    = fill(NaN,size(H));
+    tau_c = fill(NaN,size(H));
+
+    # Assign analytical values (tau_c as a boundary condition, ux as initial condition)
+    cb = tau_c;
+
+    # Determine constant L too, for diagnostic output
+    L = W / ((1.0+m)^(1.0/m));
+
+    println("SLAB-S06: H0      = ", H0)
+    println("SLAB-S06: alpha   = ", α)
+    println("SLAB-S06: W       = ", W)
+    println("SLAB-S06: L       = ", L) 
+    println("SLAB-S06: m       = ", m) 
+    println("SLAB-S06: ρ g     = ", ρ, " ", g)
+    println("SLAB-S06: f       = ", (ρ*g*H0)*α)
+    println("SLAB-S06: ATT     = ", rf)
+    println("SLAB-S06: cb      = ", cb[1,1])
+    println("SLAB-S06: tau_c   = ", tau_c[1,1])
+    println("SLAB-S06: max(ux) = ", maximum(ux))
+
+    p = Dict("H0"=>H0,"α"=>α,"W"=>W,"L"=>L,"m"=>m,"ρ"=>ρ,"g"=>g,"rf"=>rf);
+
+    return p, xc, yc, H, z_bed, z_srf, ux, tau_c, cb
 end
 
 function plot_out(var)
