@@ -332,7 +332,7 @@ lines!(ax1,schf["yc"]*1e-3,schf["ux"][10,:],color=:red,linewidth=6,label="Pagos"
 ax2  = Axis(fig[2,1],xlabel="y (km)",ylabel="Basal stress (kPa)")
 ylims!(ax2,(0,70))
 lines!(ax2,schf_an["yc"]*1e-3,schf_an["tau_c"]*1e-3,color=:grey60,linewidth=10,label="Analytical solution")
-lines!(ax2,schf["yc"]*1e-3,schf["taub"][10,:]*1e-3,color=:red,linewidth=6,label="Pagos")
+lines!(ax2,schf["yc"]*1e-3,schf["taub_acx"][10,:]*1e-3,color=:red,linewidth=6,label="Pagos")
 
 ax3  = Axis(fig[1,2],xlabel="y (km)",ylabel="Viscosity (Pa yr)",yscale=log10)
 #ylims!(ax3,(0,70))
