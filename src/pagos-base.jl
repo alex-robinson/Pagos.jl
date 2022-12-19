@@ -99,22 +99,195 @@ function stagger_beta(β)
     for i in 1:nx
         for j in 1:ny
 
-            # BCs: Periodic boundary conditions in x and y 
+            # BC: Periodic boundary conditions
             ip1 = i+1
             if ip1 == nx+1
-                ip1 = 1 
+                ip1 = 1
             end
+
             jp1 = j+1
             if jp1 == ny+1
-                jp1 = 1 
+                jp1 = 1
             end
-            
+
             β_acx[i,j] = 0.5*(β[i,j]+β[ip1,j]);
             β_acy[i,j] = 0.5*(β[i,j]+β[i,jp1]);
         end
     end
 
     return β_acx, β_acy
+end
+
+"""
+    calc_beta_aa_power_plastic(ux_b,uy_b,c_bed,f_ice,q,u_0)
+
+    Calculate basal friction coefficient (beta) that
+    enters the SSA solver as a function of basal velocity
+    using a power-law form following Bueler and van Pelt (2015)
+    
+"""
+function calc_beta_aa_power_plastic(ux_b::Array{T,2},uy_b::Array{T,2},
+                                    c_bed::Array{T,2},f_ice::Array{T,2},q,u_0) where T
+    
+
+    # Local variables
+    ub_min    = 1e-3;               # [m/yr] Minimum velocity is positive small value to avoid divide by zero
+    ub_sq_min = ub_min^2;
+
+    nx, ny = size(ux_b);
+
+    # Initially set friction to zero everywhere
+    beta = fill(0.0,nx,ny);
+    
+    for i = 1:nx
+        for j = 1:ny
+
+            # Get neighbor indices 
+            im1 = max(i-1,1)
+            ip1 = min(i+1,nx)
+            jm1 = max(j-1,1) 
+            jp1 = min(j+1,ny)
+            
+            if f_ice[i,j] == 1.0 
+                # Fully ice-covered point with some fully ice-covered neighbors 
+
+                cb_aa = c_bed[i,j];
+
+                if q == 1.0 
+                    # Linear law, no f(ub) term
+
+                    beta[i,j] = cb_aa / u_0;
+
+                else
+                    # Non-linear law with f(ub) term 
+
+                    # Unstagger velocity components to aa-nodes 
+                    ux_aa = 0.5*(ux_b[i,j]+ux_b[im1,j]);
+                    uy_aa = 0.5*(uy_b[i,j]+uy_b[i,jm1]);
+                    
+                    uxy_aa = sqrt(ux_aa^2 + uy_aa^2 + ub_sq_min);
+                    
+                    if q == 0
+                        # Plastic law
+
+                        beta[i,j] = cb_aa * (1.0 / uxy_aa);
+                        
+                    else
+
+                        beta[i,j] = cb_aa * (uxy_aa / u_0)^q * (1.0 / uxy_aa);
+                    
+                    end
+                    
+                end
+
+            else
+                # Assign minimum velocity value, no staggering for simplicity
+
+                if q == 1.0 
+                    # Linear law, no f(ub) term
+
+                    beta[i,j] = c_bed[i,j] / u_0;
+
+                else
+                    
+                    uxy_b  = ub_min;
+
+                    if q == 0.0 
+                        # Plastic law
+
+                        beta[i,j] = c_bed[i,j] * (1.0 / uxy_b);
+
+                    else
+
+                        beta[i,j] = c_bed[i,j] * (uxy_b / u_0)^q * (1.0 / uxy_b);
+
+                    end 
+
+                end
+
+            end
+
+        end
+    end
+
+    return beta
+    
+end
+
+function calc_visc_eff_2D_aa(ux,uy,ATT,H_ice,f_ice,dx,dy;n_glen=3,eps_0=1e-6)
+    # Calculate 3D effective viscosity following L19, Eq. 2
+    # Use of eps_0 ensures non-zero positive viscosity value everywhere 
+    # Note: viscosity is first calculated on ab-nodes, then 
+    # unstaggered back to aa-nodes. This ensures more stability for 
+    # visc_eff (less likely to blow up for low strain rates). 
+
+    visc_min = 1e5;
+
+    nx, ny = size(ux);
+
+    # Calculate exponents 
+    p1 = (1.0 - n_glen)/(2.0*n_glen);
+    p2 = -1.0/n_glen;
+
+    # Calculate squared minimum strain rate 
+    eps_0_sq = eps_0*eps_0;
+
+    # Calculate visc_eff on aa-nodes
+
+    visc = fill(visc_min,nx,ny);
+
+    for i = 1:nx
+        for j = 1:ny  
+
+            if f_ice[i,j] == 1.0
+
+                # BC: Periodic boundary conditions
+                im1 = i-1
+                if im1 == 0
+                    im1 = nx
+                end
+                ip1 = i+1
+                if ip1 == nx+1
+                    ip1 = 1
+                end
+
+                jm1 = j-1
+                if jm1 == 0
+                    jm1 = ny
+                end
+                jp1 = j+1
+                if jp1 == ny+1
+                    jp1 = 1
+                end
+
+                # Get strain rate terms
+                dudx_aa = (ux[i,j]-ux[im1,j])/dx 
+                dvdy_aa = (uy[i,j]-uy[i,jm1])/dy 
+                
+                dudy_aa_1 = (ux[i,jp1]-ux[i,jm1])/(2.0*dy)
+                dudy_aa_2 = (ux[im1,jp1]-ux[im1,jm1])/(2.0*dy)
+                dudy_aa   = 0.5*(dudy_aa_1+dudy_aa_2)
+
+                dvdx_aa_1 = (uy[ip1,j]-uy[im1,j])/(2.0*dx)
+                dvdx_aa_2 = (uy[ip1,jm1]-uy[im1,jm1])/(2.0*dx)
+                dvdx_aa   = 0.5*(dvdx_aa_1+dvdx_aa_2)
+
+                # Calculate the total effective strain rate from L19, Eq. 21 
+                eps_sq_aa = dudx_aa^2 + dvdy_aa^2 + dudx_aa*dvdy_aa + 0.25*(dudy_aa+dvdx_aa)^2 + eps_0_sq
+
+                # Get rate factor on central node
+                ATT_aa = ATT[i,j];
+
+                # Calculate effective viscosity on ab-nodes
+                visc[i,j] = 0.5*(eps_sq_aa)^(p1) * ATT_aa^(p2)
+
+            end
+
+        end 
+    end
+
+    return visc
+
 end
 
 # Functions to calculate velocity 
@@ -140,7 +313,7 @@ function ij2n_uy(i,j,nx,ny)
     return n 
 end
 
-function calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx)
+function calc_vel_ssa(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx)
     # Calculate the diagnostic SSA velocity solution 
     # given ice thickness, viscosity, driving stress and basal friction coefficient
 
@@ -404,9 +577,6 @@ function calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx)
         end
     end
 
-    # Now A (dense), x and b have been populated
-    # Define sparse array A:
-
     # Now u, b and A components (I, J, V vectors) have been defined.
     # Convert into a sparse array for solving:
 
@@ -426,17 +596,20 @@ function calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx)
 
     end
 
-    # Update velocity arrays with new solution
+    # Define output velocity arrays with new solution
+    ux1 = fill(0.0,nx,ny);
+    uy1 = fill(0.0,nx,ny);
+
     for i = 1:nx
         for j = 1:ny
             n = ij2n_ux(i,j,nx,ny);
-            ux[i,j] = unew[n];
+            ux1[i,j] = unew[n];
             n = ij2n_uy(i,j,nx,ny);
-            uy[i,j] = unew[n];
+            uy1[i,j] = unew[n];
         end
     end
-
-    return Asp, u, b
+    
+    return ux1, uy1
 end
 
 println("Loaded pagos-base.jl.")
