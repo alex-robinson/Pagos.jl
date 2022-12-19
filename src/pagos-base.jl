@@ -88,13 +88,41 @@ function calc_driving_stress(H,z_srf,dx,dy,ρ,g)
     return taud_acx, taud_acy
 end
 
+function stagger_beta(β)
+
+    nx, ny = size(β);
+
+    # Stagger β to acx and acy nodes 
+    β_acx = copy(β);
+    β_acy = copy(β);
+
+    for i in 1:nx
+        for j in 1:ny
+
+            # BCs: Periodic boundary conditions in x and y 
+            ip1 = i+1
+            if ip1 == nx+1
+                ip1 = 1 
+            end
+            jp1 = j+1
+            if jp1 == ny+1
+                jp1 = 1 
+            end
+            
+            β_acx[i,j] = 0.5*(β[i,j]+β[ip1,j]);
+            β_acy[i,j] = 0.5*(β[i,j]+β[i,jp1]);
+        end
+    end
+
+    return β_acx, β_acy
+end
 
 # Functions to calculate velocity 
 
 function calc_F_integral(visc_eff,H_ice,f_ice,zeta_aa,n)
 
     # To do...
-    
+
     return Fn
 end
 

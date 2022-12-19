@@ -9,7 +9,7 @@ include(pwd()*"/src/pagos-base.jl");
 
     Calculate analytical solution of stream 
 """
-function define_stream(;H0=1000.0,μ0=1e5,β0=1e3,α=1e-2,ρ=910.0,g=9.81,verbose=true)
+function define_stream_slab(;H0=1000.0,μ0=1e5,β0=1e3,α=1e-2,ρ=910.0,g=9.81,verbose=true)
 
     # Get constants
     η  = β0 * H0 / μ0;
@@ -37,26 +37,22 @@ function define_stream(;H0=1000.0,μ0=1e5,β0=1e3,α=1e-2,ρ=910.0,g=9.81,verbos
     return strm
 end
 
-function calc_vel_diva_1D!(ux,H,H0,mu,beta_sl,dx,ρ,g,α)
-    #calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,dx)
-    
-    eta  = beta_sl*H0/mu; 
-    
-    rhs = ρ .* g .* (H[1:end-1] .+ H[2:end])./2 .* (diff(H)./dx .- α);
-    F2  = (H[1:end-1] .+ H[2:end]) ./ 2 ./ (3*eta);
-    B   = beta_sl ./ (1 .+ beta_sl .* F2);
-   
-    d0 = -B .- 4*eta*H[1:end-1]/dx^2 .- 4*eta*H[2:end]/dx^2;
-    dr = 4 * eta * H[2:end] / dx^2;
-    dl = 4 * eta * H[1:end-1] / dx^2;
-    #A = spdiags([dr d0 dl],[-1 0 1],N,N)'; 
-    A = spdiagm(-1 => dr, 0 => d0, 1 => dl);
-    #A[1,N] = dl[1];
-    #A[N,1] = dr[end];
-   
-    u = A\rhs;
+@inline function schoof2006_vel(y,taud,H0,B,L,W,m)
 
-    return
+    # Calculate the analytical solution for u
+    ua = -2.0 * taud^3 * L^4 / (B^3 * H0^3)
+    ub = ( 1.0 / 4.0                      ) * (   (y/L)^     4.0  - (m+1.0)^(     4.0/m ))
+    uc = (-3.0 / ((m+1.0)   * (    m+4.0))) * (abs(y/L)^(  m+4.0) - (m+1.0)^(1.0+(4.0/m)))
+    ud = ( 3.0 / ((m+1.0)^2 * (2.0*m+4.0))) * (abs(y/L)^(2*m+4.0) - (m+1.0)^(2.0+(4.0/m)))
+    ue = (-1.0 / ((m+1.0)^3 * (3.0*m+4.0))) * (abs(y/L)^(3*m+4.0) - (m+1.0)^(3.0+(4.0/m)))
+    u = ua * (ub + uc + ud + ue);
+    
+    # Outside the ice-stream, velocity is zero
+    if abs(y) > W || abs(u) < 1e-10
+        u = 0.0
+    end
+
+    return u
 end
 
 function define_stream_schoof2006(dx;xmax=140e3,ymax=50e3,H0=1e3,rf=1e-16,α=1e-3,ρ=910.0,g=9.81,n_glen=3,W=25e3,m=1.55)
@@ -92,12 +88,26 @@ function define_stream_schoof2006(dx;xmax=140e3,ymax=50e3,H0=1e3,rf=1e-16,α=1e-
     # Define surface elevation 
     z_srf = z_bed .+ H;
 
-    # Calculate analytical stream function to get tau_c and ux
+    # Calculate the gravitational driving stress f
+    taud = ρ * g * H0 * α;
+    
+    # Calculate the ice hardness factor B
+    B = rf^(-1/n_glen);
+    
+    # Determine constant L (ice-stream width)
+    L = W / ((1.0+m)^(1.0/m));
 
-    #ux, tau_c = SSA_Schoof2006_analytical_solution_yelmo(y,α,H0,rf_const,W,m,n_glen,ρ,g);
-    ux    = fill(NaN,size(H));
+    # Calculate the till yield stress across the stream
+    # and analytical velocity solution
     tau_c = fill(NaN,size(H));
+    ux    = fill(NaN,nx,ny);
+    
+    for j = eachindex(yc)
+        tau_c[:,j] .= taud * abs(yc[j] / L)^m;
+        ux[:,j]    .= schoof2006_vel(yc[j],taud,H0,B,L,W,m);
+    end
 
+    
     # Assign analytical values (tau_c as a boundary condition, ux as initial condition)
     cb = tau_c;
 
@@ -118,7 +128,54 @@ function define_stream_schoof2006(dx;xmax=140e3,ymax=50e3,H0=1e3,rf=1e-16,α=1e-
 
     p = Dict("H0"=>H0,"α"=>α,"W"=>W,"L"=>L,"m"=>m,"ρ"=>ρ,"g"=>g,"rf"=>rf);
 
-    return p, xc, yc, H, z_bed, z_srf, ux, tau_c, cb
+    return Dict("p"=>p, "xc"=>xc, "yc"=>yc, "H"=>H, "z_bed"=>z_bed, "z_srf"=>z_srf, "ux"=>ux, "tau_c"=>tau_c, "cb"=>cb)
+end
+
+function solve_stream_slab(an)
+
+    # Define axes x,y ###
+
+    xmin = 0.0;
+    ymin = -(ny-1)/2*dx;
+
+    xc = [xmin + (i-1)*dx for i in 1:nx];
+    yc = [ymin + (i-1)*dx for i in 1:ny];
+
+    # Define variables with initial values ###
+
+    # Ice thickness
+    H = fill(an["H0"],nx,ny); 
+
+    # Bed elevation
+    z_bed = fill(0.0,nx,ny);
+    for j in 1:ny
+        z_bed[:,j] = [10000.0 - an["α"]*(x) for x in xc];
+    end
+
+    # Surface elevation
+    z_srf = z_bed .+ H;
+
+    # Viscosity
+    μ = fill(an["μ0"],nx,ny);
+
+    # Basal friction 
+    β = fill(an["β0"],nx,ny);
+    β_acx, β_acy = stagger_beta(β);
+
+    # Get driving stress
+    taud_acx, taud_acy = calc_driving_stress(H,z_srf,dx,dx,an["ρ"],an["g"]);
+
+    # Now, solve for velocity:
+    ux = fill(0.0,nx,ny);
+    uy = fill(0.0,nx,ny);
+    calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx);
+    
+    #println("ux, uy: ", extrema(ux), " | ", extrema(uy) )
+
+    # Collect variables for output 
+
+    return Dict("xc"=>xc,"yc"=>yc,"H"=>H,"z_bed"=>z_bed,"z_srf"=>z_srf,"μ"=>μ,"β"=>β,"β_acx"=>β_acx,"β_acy"=>β_acy,
+                    "taud_acx"=>taud_acx,"taud_acy"=>taud_acy,"ux"=>ux,"uy"=>uy)
 end
 
 function plot_out(var)
@@ -129,6 +186,7 @@ function plot_out(var)
 
     println("extrema: ",extrema(var))
 end
+
 
 ######################################
 # Parameters #
@@ -141,83 +199,54 @@ ny = 3
 dx = 5e3
 
 # Analytical cases
-an1 = define_stream(H0=1000.0,μ0=1e5,β0=1e3, α=1e-3,ρ=ρ,g=g);
-an2 = define_stream(H0= 500.0,μ0=4e5,β0=30.0,α=1e-3,ρ=ρ,g=g);
-
-# Define analytical case of interest now 
-an = an1; 
+an1 = define_stream_slab(H0=1000.0,μ0=1e5,β0=1e3, α=1e-3,ρ=ρ,g=g);
+an2 = define_stream_slab(H0= 500.0,μ0=4e5,β0=30.0,α=1e-3,ρ=ρ,g=g);
 
 ######################################
 
-# Define axes x,y ###
+# Test
+strm1 = solve_stream_slab(an1);
+strm2 = solve_stream_slab(an2);
 
-x0 = 0.0;
-y0 = -(ny-1)/2*dx;
-
-xc = [x0 + (i-1)*dx for i in 1:nx];
-yc = [y0 + (i-1)*dx for i in 1:ny];
+plot_out(strm1["ux"])
+plot_out(strm2["ux"])
 
 
-# Define variables with initial values ###
 
-# Ice thickness
-H = fill(an["H0"],nx,ny); 
 
-# Viscosity
-μ = fill(an["μ0"],nx,ny);
 
-# Basal friction 
-β = fill(an["β0"],nx,ny);
 
-# Stagger β to acx and acy nodes 
-β_acx = copy(β);
-β_acy = copy(β);
 
-for i in 1:nx
-    for j in 1:ny
+########################################################################
 
-        # Periodic boundary conditions in x and y 
-        ip1 = i+1
-        if ip1 == nx+1
-            ip1 = 1 
-        end
-        jp1 = j+1
-        if jp1 == ny+1
-            jp1 = 1 
-        end
-        
-        β_acx[i,j] = 0.5*(β[i,j]+β[ip1,j]);
-        β_acy[i,j] = 0.5*(β[i,j]+β[i,jp1]);
-    end
+# To do: 1D numerical case translated from Matlab:
+
+function calc_vel_diva_1D!(ux,H,H0,mu,beta_sl,dx,ρ,g,α)
+    #calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,dx)
+    
+    eta  = beta_sl*H0/mu; 
+    
+    rhs = ρ .* g .* (H[1:end-1] .+ H[2:end])./2 .* (diff(H)./dx .- α);
+    F2  = (H[1:end-1] .+ H[2:end]) ./ 2 ./ (3*eta);
+    B   = beta_sl ./ (1 .+ beta_sl .* F2);
+   
+    d0 = -B .- 4*eta*H[1:end-1]/dx^2 .- 4*eta*H[2:end]/dx^2;
+    dr = 4 * eta * H[2:end] / dx^2;
+    dl = 4 * eta * H[1:end-1] / dx^2;
+    #A = spdiags([dr d0 dl],[-1 0 1],N,N)'; 
+    A = spdiagm(-1 => dr, 0 => d0, 1 => dl);
+    #A[1,N] = dl[1];
+    #A[N,1] = dr[end];
+   
+    u = A\rhs;
+
+    return
 end
 
-# Bed elevation
-z_bed = fill(0.0,nx,ny);
-for j in 1:ny
-    z_bed[:,j] = [10000.0 - an["α"]*(x) for x in xc];
-end
-
-# Surface elevation
-z_srf = z_bed .+ H;
-
-@show z_srf[:,1]
-
-ux = fill(0.0,nx,ny);
-uy = fill(0.0,nx,ny);
-
-taud_acx, taud_acy = calc_driving_stress(H,z_srf,dx,dx,an["ρ"],an["g"]);
-
-
-# Now, solve for velocity:
-
-A, u, b = calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx);
-#println("ux, uy: ", extrema(ux), " | ", extrema(uy) )
 
 #ux1D = ux[:,2];
 #H1D  = H[:,2];
 #calc_vel_diva_1D!(ux1D[1:end-1],H1D,an["H0"],an["μ0"],an["β0"],dx,an["ρ"],an["g"],an["α"])
 #println("ux1D: ", extrema(ux1D[1:end-1]))
 
-plot_out(ux)
-
-
+println("Done.")
