@@ -115,7 +115,7 @@ function define_stream_schoof2006(dx;H0=1e3,rf=1e-16,α=1e-3,ρ=910.0,g=9.81,n_g
     ymax = W*2;
     ymin = -ymax;
 
-    ny = Int((ymax-ymin)/dx)+1;
+    ny = floor(Int,(ymax-ymin)/dx)+1;
     y0 = -(ny-1)/2*dx;
     yc = [ymin + (i-1)*dx for i in 1:ny];
 
@@ -170,8 +170,8 @@ function solve_stream_schoof2006(an,dx;xmax=140e3,ymax=50e3,beta_q=0.0,beta_u0=1
     xmin = 0.0;
     ymin = -ymax;
 
-    nx = Int(xmax/dx)+1;
-    ny = Int((ymax-ymin)/dx)+1;
+    nx = floor(Int,xmax/dx)+1;
+    ny = floor(Int,(ymax-ymin)/dx)+1;
     
     x0 = 0.0;
     y0 = -(ny-1)/2*dx;
@@ -222,28 +222,49 @@ function solve_stream_schoof2006(an,dx;xmax=140e3,ymax=50e3,beta_q=0.0,beta_u0=1
     ux    = fill(0.0,nx,ny);
     uy    = fill(0.0,nx,ny);
     
+    # Relaxation weighting
+    f_rel = 0.7;
+
+    # Tolerance for stopping iterations 
+    iter_tol = 1e-3;
+
     for iter = 1:n_iter
         
+        # Store solution from previous iteration
+        ux0, uy0 = ux, uy;
+
         # Calculate viscosity
         if const_visc
             μ .= μ0
         else
-            μ = calc_visc_eff_2D_aa(ux,uy,ATT,H,f_ice,dx,dx;n_glen=an["n_glen"],eps_0=eps_0)
+            μ_new = calc_visc_eff_2D_aa(ux,uy,ATT,H,f_ice,dx,dx;n_glen=an["n_glen"],eps_0=eps_0);
+            #μ = f_rel .* μ_new + (1-f_rel) .* μ;
+            μ = μ_new;
         end
 
         # Calculate basal friction
-        β = calc_beta_aa_power_plastic(ux,uy,c_bed,f_ice,beta_q,beta_u0);
+        β_new = calc_beta_aa_power_plastic(ux,uy,c_bed,f_ice,beta_q,beta_u0);
+        #β = f_rel .* β_new + (1-f_rel) .* β;
+        β = β_new;
         β_acx, β_acy = stagger_beta(β);
 
+        # Calculate new velocity solution
         ux_new, uy_new = calc_vel_ssa(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx);
         
         # Relax towards new solution 
-        f_rel = 0.7;
         ux = f_rel .* ux_new .+ (1-f_rel) .* ux;
         uy = f_rel .* uy_new .+ (1-f_rel) .* uy;
         
-        println("iter: ",iter, " ", extrema(ux), " | ", extrema(β))
+        # Check convergence
+        #du = sqrt( sum((ux-ux0).^2 + (uy-uy0).^2) / (nx*ny) );
+        du = calc_picard_convergence_metric(ux,uy,ux0,uy0);
         
+        @printf("iter: %5i %8.3e | %8.3e %8.3e | %8.3e %8.3e\n",iter,du,extrema(ux)...,extrema(β)...)
+        #println("iter: ",iter, " ", du, " ", extrema(ux), " | ", extrema(β))
+        
+        if du <= iter_tol && iter > 1
+            break
+        end
     end
 
     # Get final basal stress field 
@@ -319,25 +340,28 @@ g  = 9.81
 ## Test schoof2006 ##
 dx = 5e3;
 
-schf_an = define_stream_schoof2006(dx;H0=1e3,rf=1e-16,α=1e-3,ρ=910.0,g=9.81,n_glen=3,W=25e3,m=1.55,);
-#schf = solve_stream_schoof2006(schf_an,dx;n_iter=100);
+schf_an = define_stream_schoof2006(dx;H0=1e3,rf=1e-16,α=1e-3,ρ=910.0,g=9.81,n_glen=3,W=25e3,m=1.55);
+schf = solve_stream_schoof2006(schf_an,dx;n_iter=200,eps_0=1e-6);
+
 
 fig = Figure(resolution=(1000,600))
 
 ax1  = Axis(fig[1,1],xlabel="y (km)",ylabel="x-velocity (m/yr)")
 ylims!(ax1,(0,1000))
-lines!(ax1,schf_an["yc"]*1e-3,schf_an["ux"],color=:grey60,linewidth=10,label="Analytical solution")
-lines!(ax1,schf["yc"]*1e-3,schf["ux"][10,:],color=:red,linewidth=6,label="Pagos")
+ax1.yticks=0:100:1000;
+lines!(ax1,schf_an["yc"]*1e-3,schf_an["ux"],color=:grey60,linewidth=8,label="Analytical solution")
+imid = floor(Int,length(schf["xc"])/2);
+lines!(ax1,schf["yc"]*1e-3,schf["ux"][imid,:],color=:red,linewidth=4,label="Pagos")
 
 ax2  = Axis(fig[2,1],xlabel="y (km)",ylabel="Basal stress (kPa)")
 ylims!(ax2,(0,70))
-lines!(ax2,schf_an["yc"]*1e-3,schf_an["tau_c"]*1e-3,color=:grey60,linewidth=10,label="Analytical solution")
-lines!(ax2,schf["yc"]*1e-3,schf["taub_acx"][10,:]*1e-3,color=:red,linewidth=6,label="Pagos")
+lines!(ax2,schf_an["yc"]*1e-3,schf_an["tau_c"]*1e-3,color=:grey60,linewidth=8,label="Analytical solution")
+imid = floor(Int,length(schf["xc"])/2);
+lines!(ax2,schf["yc"]*1e-3,schf["taub_acx"][imid,:]*1e-3,color=:red,linewidth=4,label="Pagos")
 
 ax3  = Axis(fig[1,2],xlabel="y (km)",ylabel="Viscosity (Pa yr)",yscale=log10)
-#ylims!(ax3,(0,70))
-#lines!(ax2,schf_an["yc"]*1e-3,schf_an["tau_c"]*1e-3,color=:grey60,linewidth=10,label="Analytical solution")
-lines!(ax3,schf["yc"]*1e-3,schf["μ"][10,:],color=:red,linewidth=6,label="Pagos")
+imid = floor(Int,length(schf["xc"])/2);
+lines!(ax3,schf["yc"]*1e-3,schf["μ"][imid,:],color=:red,linewidth=4,label="Pagos")
 
 save("test.pdf",fig)
 
