@@ -161,7 +161,7 @@ function define_stream_schoof2006(dx;H0=1e3,rf=1e-16,α=1e-3,ρ=910.0,g=9.81,n_g
                      "yc"=>yc, "ux"=>ux, "tau_c"=>tau_c, "c_bed"=>c_bed, "β"=>β)
 end
 
-function solve_stream_schoof2006(an,dx;xmax=140e3,ymax=50e3,beta_q=0.0,beta_u0=1.0,eps_0=1e-6,μ0=nothing,n_iter=10)
+function solve_stream_schoof2006(an,dx;xmax=140e3,ymax=maximum(schf_an["yc"]),beta_q=0.0,beta_u0=1.0,eps_0=1e-6,μ0=nothing,n_iter=10)
 
     # Intialize domain 
 
@@ -181,7 +181,7 @@ function solve_stream_schoof2006(an,dx;xmax=140e3,ymax=50e3,beta_q=0.0,beta_u0=1
 
     # ===== Intialize topography and set parameters =========
 
-    H = fill(H0,nx,ny);
+    H = fill(an["H0"],nx,ny);
     
     z_bed = fill(NaN,nx,ny);
 
@@ -222,8 +222,14 @@ function solve_stream_schoof2006(an,dx;xmax=140e3,ymax=50e3,beta_q=0.0,beta_u0=1
     ux    = fill(0.0,nx,ny);
     uy    = fill(0.0,nx,ny);
     
+    # Initialize solution to analytical result 
+    for j = 1:ny
+        ux[:,j] .= an["ux"][j];
+    end
+
     # Relaxation weighting
-    f_rel = 0.7;
+    f_rel = 0.70;
+    f_rel_visc = 0.7;
 
     # Tolerance for stopping iterations 
     iter_tol = 1e-3;
@@ -238,16 +244,18 @@ function solve_stream_schoof2006(an,dx;xmax=140e3,ymax=50e3,beta_q=0.0,beta_u0=1
             μ .= μ0
         else
             μ_new = calc_visc_eff_2D_aa(ux,uy,ATT,H,f_ice,dx,dx;n_glen=an["n_glen"],eps_0=eps_0);
-            #μ = f_rel .* μ_new + (1-f_rel) .* μ;
+            #μ_new = calc_visc_eff_2D_nodes(ux,uy,ATT,H,f_ice,dx,dx;n_glen=an["n_glen"],eps_0=eps_0);
+            #μ = f_rel_visc .* μ_new + (1-f_rel) .* μ;
             μ = μ_new;
         end
 
         # Calculate basal friction
         β_new = calc_beta_aa_power_plastic(ux,uy,c_bed,f_ice,beta_q,beta_u0);
+        #β_new = calc_beta_aa_power_plastic_nodes(ux,uy,c_bed,f_ice,beta_q,beta_u0);
         #β = f_rel .* β_new + (1-f_rel) .* β;
         β = β_new;
         β_acx, β_acy = stagger_beta(β);
-
+        
         # Calculate new velocity solution
         ux_new, uy_new = calc_vel_ssa(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx);
         
@@ -324,31 +332,38 @@ g  = 9.81
 ######################################
 
 ## Test slab ##
-
+if false
 # Case 1 #
-#an1   = define_stream_slab(H0=1000.0,μ0=1e5,β0=1e3, α=1e-3,ρ=ρ,g=g);
-#strm1 = solve_stream_slab(an1,5e3);
-#plot_var2D(strm1["ux"])
+an1   = define_stream_slab(H0=1000.0,μ0=1e5,β0=1e3, α=1e-3,ρ=ρ,g=g);
+strm1 = solve_stream_slab(an1,5e3);
+plot_var2D(strm1["ux"])
 
 # Case 2 #
-#an2   = define_stream_slab(H0= 500.0,μ0=4e5,β0=30.0,α=1e-3,ρ=ρ,g=g);
-#strm2 = solve_stream_slab(an2,5e3);
-#plot_var2D(strm2["ux"])
-
+an2   = define_stream_slab(H0= 500.0,μ0=4e5,β0=30.0,α=1e-3,ρ=ρ,g=g);
+strm2 = solve_stream_slab(an2,5e3);
+plot_var2D(strm2["ux"])
+end
 ######################################
 
+if true
 ## Test schoof2006 ##
-dx = 5e3;
+dx = 4e3;
 
 schf_an = define_stream_schoof2006(dx;H0=1e3,rf=1e-16,α=1e-3,ρ=910.0,g=9.81,n_glen=3,W=25e3,m=1.55);
 schf = solve_stream_schoof2006(schf_an,dx;n_iter=200,eps_0=1e-6);
+
+# Following Berends et al (2022) parameters:
+#schf_an = define_stream_schoof2006(dx;H0=2e3,rf=1e-18,α=3e-3,ρ=910.0,g=9.81,n_glen=3,W=300e3,m=1.0);
+#schf = solve_stream_schoof2006(schf_an,dx;n_iter=200,eps_0=1e-6);
 
 
 fig = Figure(resolution=(1000,600))
 
 ax1  = Axis(fig[1,1],xlabel="y (km)",ylabel="x-velocity (m/yr)")
-ylims!(ax1,(0,1000))
-ax1.yticks=0:100:1000;
+xlims!(ax1,extrema(schf_an["yc"]).*1e-3)
+#ylims!(ax1,(0,1000))
+ylims!(ax1,extrema(schf_an["ux"]).*1.1)
+#ax1.yticks=0:100:2000;
 lines!(ax1,schf_an["yc"]*1e-3,schf_an["ux"],color=:grey60,linewidth=8,label="Analytical solution")
 imid = floor(Int,length(schf["xc"])/2);
 lines!(ax1,schf["yc"]*1e-3,schf["ux"][imid,:],color=:red,linewidth=4,label="Pagos")
@@ -364,7 +379,7 @@ imid = floor(Int,length(schf["xc"])/2);
 lines!(ax3,schf["yc"]*1e-3,schf["μ"][imid,:],color=:red,linewidth=4,label="Pagos")
 
 save("test.pdf",fig)
-
+end
 
 
 
