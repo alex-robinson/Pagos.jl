@@ -347,15 +347,25 @@ end
 
 if true
 ## Test schoof2006 ##
-dx = 4e3;
+dxs = [4e3,8e3,16e3];
 
-schf_an = define_stream_schoof2006(dx;H0=1e3,rf=1e-16,α=1e-3,ρ=910.0,g=9.81,n_glen=3,W=25e3,m=1.55);
-schf = solve_stream_schoof2006(schf_an,dx;n_iter=200,eps_0=1e-6);
-
-# Following Berends et al (2022) parameters:
-#schf_an = define_stream_schoof2006(dx;H0=2e3,rf=1e-18,α=3e-3,ρ=910.0,g=9.81,n_glen=3,W=300e3,m=1.0);
+#schf_an = define_stream_schoof2006(dx;H0=1e3,rf=1e-16,α=1e-3,ρ=910.0,g=9.81,n_glen=3,W=25e3,m=1.55);
 #schf = solve_stream_schoof2006(schf_an,dx;n_iter=200,eps_0=1e-6);
 
+if true
+# Following Berends et al (2022) parameters:
+dx = dxs[1];
+schf_an = define_stream_schoof2006(dx;H0=2e3,rf=1e-18,α=3e-4,ρ=910.0,g=9.81,n_glen=3,W=300e3,m=1.0);
+schf = solve_stream_schoof2006(schf_an,dx;n_iter=200,eps_0=1e-6);
+
+dx = dxs[2];
+schf_an_2 = define_stream_schoof2006(dx;H0=2e3,rf=1e-18,α=3e-4,ρ=910.0,g=9.81,n_glen=3,W=300e3,m=1.0);
+schf_2 = solve_stream_schoof2006(schf_an_2,dx;n_iter=200,eps_0=1e-6);
+
+dx = dxs[3];
+schf_an_3 = define_stream_schoof2006(dx;H0=2e3,rf=1e-18,α=3e-4,ρ=910.0,g=9.81,n_glen=3,W=300e3,m=1.0);
+schf_3 = solve_stream_schoof2006(schf_an_3,dx;n_iter=200,eps_0=1e-6);
+end
 
 fig = Figure(resolution=(1000,600))
 
@@ -367,6 +377,12 @@ ylims!(ax1,extrema(schf_an["ux"]).*1.1)
 lines!(ax1,schf_an["yc"]*1e-3,schf_an["ux"],color=:grey60,linewidth=8,label="Analytical solution")
 imid = floor(Int,length(schf["xc"])/2);
 lines!(ax1,schf["yc"]*1e-3,schf["ux"][imid,:],color=:red,linewidth=4,label="Pagos")
+
+imid = floor(Int,length(schf_2["xc"])/2);
+lines!(ax1,schf_2["yc"]*1e-3,schf_2["ux"][imid,:],color=:red,linewidth=4,label="Pagos")
+
+imid = floor(Int,length(schf_3["xc"])/2);
+lines!(ax1,schf_3["yc"]*1e-3,schf_3["ux"][imid,:],color=:red,linewidth=4,label="Pagos")
 
 ax2  = Axis(fig[2,1],xlabel="y (km)",ylabel="Basal stress (kPa)")
 ylims!(ax2,(0,70))
