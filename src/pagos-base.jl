@@ -638,9 +638,7 @@ end
 function calc_vel_ssa(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx)
     # Calculate the diagnostic SSA velocity solution 
     # given ice thickness, viscosity, driving stress and basal friction coefficient
-
-    use_sico_discretization = true 
-
+    
     # Get some constants 
     nx, ny = size(H);
 
@@ -653,29 +651,26 @@ function calc_vel_ssa(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx)
     # Define vertically-integrated viscosity (aa-nodes)
     N = H .* μ;
 
-    if use_sico_discretization
+    # Stagger N to ab-nodes
+    N_ab = copy(N);
 
-        # Stagger N to ab-nodes
-        N_ab = copy(N);
+    for i in 1:nx 
+        for j in 1:ny 
 
-        for i in 1:nx 
-            for j in 1:ny 
+            # BC: Periodic boundary conditions in x and y 
+            ip1 = i+1
+            if ip1 == nx+1
+                ip1 = 1 
+            end
+            jp1 = j+1
+            if jp1 == ny+1
+                jp1 = 1 
+            end
+            
+            N_ab[i,j] = 0.25 * (N[i,j]+N[ip1,j]+N[i,jp1]+N[ip1,jp1]);
 
-                # BC: Periodic boundary conditions in x and y 
-                ip1 = i+1
-                if ip1 == nx+1
-                    ip1 = 1 
-                end
-                jp1 = j+1
-                if jp1 == ny+1
-                    jp1 = 1 
-                end
-                
-                N_ab[i,j] = 0.25 * (N[i,j]+N[ip1,j]+N[i,jp1]+N[ip1,jp1]);
-
-            end 
         end 
-    end
+    end 
 
     #
     #
@@ -727,10 +722,6 @@ function calc_vel_ssa(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx)
             # Set the row in matrix A that the equation is being defined for:
             nr = (i-1)*ny + j
 
-if use_sico_discretization
-            
-            # Standard (sicopolis) discretization
-            
             # -- vx terms -- 
             
             # ux(i+1,j)
@@ -795,80 +786,6 @@ if use_sico_discretization
             Av[k] = ( 2.0/dxdy*N[i,j]
                      +1.0/dxdy*N_ab[i,jm1]);
 
-else
-            # Alternative discretization 
-
-            # -- ux terms -- 
-            
-            # ux(i+1,j)
-            k = k+1;
-            Ai[k] = nr;
-            Aj[k] = ij2n_ux(ip1,j,nx,ny);
-            Av[k] = ( 4.0/dxdx * N[ip1,j]);
-
-            # ux(i,j)
-            k = k+1;
-            Ai[k] = nr;
-            Aj[k] = ij2n_ux(i,j,nx,ny);
-            Av[k] = (-4.0/dxdx * (N[i,j]+N[ip1,j])
-                     -1.0/dydy * (N[i,j]+N[ip1,j])
-                     -β_acx[i,j]);
-
-            # ux(i-1,j)  
-            k = k+1;
-            Ai[k] = nr;
-            Aj[k] = ij2n_ux(im1,j,nx,ny);
-            Av[k] = ( 4.0/dxdx * N[i,j]);
-
-            # ux(i,j+1)
-            k = k+1;
-            Ai[k] = nr;
-            Aj[k] = ij2n_ux(i,jp1,nx,ny);
-            Av[k] = ( 1.0/2.0/dydy * (N[i,j]+N[ip1,j])
-                     +1.0/8.0/dydy * (N[ip1,jp1]-N[ip1,jm1]+N[i,jp1]-N[i,jm1]) );
-
-            # ux(i,j-1)
-            k = k+1;
-            Ai[k] = nr;
-            Aj[k] = ij2n_ux(i,jm1,nx,ny);
-            Av[k] = ( 1.0/2.0/dydy * (N[i,j]+N[ip1,j])
-                     -1.0/8.0/dydy * (N[ip1,jp1]-N[ip1,jm1]+N[i,jp1]-N[i,jm1]) );
-            
-            # -- uy terms -- 
-
-            # uy(i+1,j)
-            k = k+1;
-            Ai[k] = nr;
-            Aj[k] = ij2n_uy(ip1,j,nx,ny);
-            Av[k] = ( 3.0/2.0/dxdy * (N[i,j]+N[ip1,j])
-                     +1.0/dxdy * (N[ip1,j]-N[i,j])
-                     +1.0/8.0/dxdy * (N[ip1,jp1]-N[ip1,jm1]+N[i,jp1]-N[i,jm1]) );
-            
-            # uy(i,j)
-            k = k+1;
-            Ai[k] = nr;
-            Aj[k] = ij2n_uy(i,j,nx,ny);
-            Av[k] = (-3.0/2.0/dxdy * (N[i,j]+N[ip1,j])
-                     +1.0/dxdy * (N[ip1,j]-N[i,j])
-                     -1.0/8.0/dxdy * (N[ip1,jp1]-N[ip1,jm1]+N[i,jp1]-N[i,jm1]) );
-            
-            # uy(i+1,j-1)
-            k = k+1;
-            Ai[k] = nr;
-            Aj[k] = ij2n_uy(ip1,jm1,nx,ny);
-            Av[k] = (-3.0/2.0/dxdy * (N[i,j]+N[ip1,j])
-                     -1.0/dxdy * (N[ip1,j]-N[i,j])
-                     +1.0/8.0/dxdy * (N[ip1,jp1]-N[ip1,jm1]+N[i,jp1]-N[i,jm1]) );
-            
-            # uy(i,j-1)
-            k = k+1;
-            Ai[k] = nr;
-            Aj[k] = ij2n_uy(i,jm1,nx,ny);
-            Av[k] = ( 3.0/2.0/dxdy * (N[i,j]+N[ip1,j])
-                     -1.0/dxdy * (N[ip1,j]-N[i,j])
-                     -1.0/8.0/dxdy * (N[ip1,jp1]-N[ip1,jm1]+N[i,jp1]-N[i,jm1]) );
-end
-
             # [u] value
             u[nr] = ux[i,j];
 
@@ -905,10 +822,6 @@ end
             # Set the row in matrix A that the equation is being defined for:
             nr = (i-1)*ny + j + nx*ny
 
-if use_sico_discretization
-            
-            # Standard (sicopolis) discretization
-    
             # -- uy terms -- 
             
             # uy(i,j+1)
@@ -972,80 +885,6 @@ if use_sico_discretization
             Aj[k] = ij2n_ux(im1,j,nx,ny);
             Av[k] = ( 2.0/dxdy*N[i,j]
                      +1.0/dxdy*N_ab[im1,j]);
-else
-            # Alternative discretization 
-
-            # -- uy terms -- 
-            
-            # uy(i,j+1)
-            k = k+1;
-            Ai[k] = nr;
-            Aj[k] = ij2n_uy(i,jp1,nx,ny);
-            Av[k] = ( 4.0/dydy * N[i,jp1]);
-
-            # uy(i,j)
-            k = k+1;
-            Ai[k] = nr;
-            Aj[k] = ij2n_uy(i,j,nx,ny);
-            Av[k] = (-4.0/dydy * (N[i,j]+N[i,jp1])
-                     -1.0/dxdx * (N[i,j]+N[i,jp1])
-                     -β_acy[i,j]);
-
-            # uy(i,j-1)  
-            k = k+1;
-            Ai[k] = nr;
-            Aj[k] = ij2n_uy(i,jm1,nx,ny);
-            Av[k] = ( 4.0/dydy * N[i,j]);
-
-            # uy(i+1,j)
-            k = k+1;
-            Ai[k] = nr;
-            Aj[k] = ij2n_uy(ip1,j,nx,ny);
-            Av[k] = ( 1.0/2.0/dxdx * (N[i,j]+N[i,jp1])
-                     +1.0/8.0/dxdx * (N[ip1,jp1]-N[im1,jp1]+N[ip1,j]-N[im1,j]) );
-
-            # uy(i-1,j)
-            k = k+1;
-            Ai[k] = nr;
-            Aj[k] = ij2n_uy(im1,j,nx,ny);
-            Av[k] = ( 1.0/2.0/dxdx * (N[i,j]+N[i,jp1])
-                     -1.0/8.0/dxdx * (N[ip1,jp1]-N[im1,jp1]+N[ip1,j]-N[im1,j]) );
-            
-            # -- ux terms -- 
-
-            # ux(i,j+1)
-            k = k+1;
-            Ai[k] = nr;
-            Aj[k] = ij2n_ux(i,jp1,nx,ny);
-            Av[k] = ( 3.0/2.0/dxdy * (N[i,j]+N[i,jp1])
-                     +1.0/dxdy * (N[i,jp1]-N[i,j])
-                     +1.0/8.0/dxdy * (N[ip1,jp1]-N[im1,jp1]+N[ip1,j]-N[im1,j]) );
-            
-            # ux(i,j)
-            k = k+1;
-            Ai[k] = nr;
-            Aj[k] = ij2n_ux(i,j,nx,ny);
-            Av[k] = (-3.0/2.0/dxdy * (N[i,j]+N[i,jp1])
-                     +1.0/dxdy * (N[i,jp1]-N[i,j])
-                     -1.0/8.0/dxdy * (N[ip1,jp1]-N[im1,jp1]+N[ip1,j]-N[im1,j]) );
-            
-            # ux(i-1,j+1)
-            k = k+1;
-            Ai[k] = nr;
-            Aj[k] = ij2n_ux(im1,jp1,nx,ny);
-            Av[k] = (-3.0/2.0/dxdy * (N[i,j]+N[i,jp1])
-                     -1.0/dxdy * (N[i,jp1]-N[i,j])
-                     +1.0/8.0/dxdy * (N[ip1,jp1]-N[im1,jp1]+N[ip1,j]-N[im1,j]) );
-            
-            # ux(i-1,j)
-            k = k+1;
-            Ai[k] = nr;
-            Aj[k] = ij2n_ux(im1,j,nx,ny);
-            Av[k] = ( 3.0/2.0/dxdy * (N[i,j]+N[i,jp1])
-                     -1.0/dxdy * (N[i,jp1]-N[i,j])
-                     -1.0/8.0/dxdy * (N[ip1,jp1]-N[im1,jp1]+N[ip1,j]-N[im1,j]) );
-
-end
 
             # [u] value
             u[nr] = uy[i,j];
