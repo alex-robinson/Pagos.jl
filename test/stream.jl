@@ -1,6 +1,7 @@
 using NCDatasets
 using Printf
 using CairoMakie
+using Interpolations 
 
 include(pwd()*"/src/pagos-base.jl");
 
@@ -86,7 +87,7 @@ function solve_stream_slab(an,dx;nx=11,ny=3)
                     "taud_acx"=>taud_acx,"taud_acy"=>taud_acy,"ux"=>ux,"uy"=>uy)
 end
 
-@inline function schoof2006_vel(y,taud,H0,B,L,W,m)
+function calc_schoof2006_vel(y,taud,H0,B,L,W,m)
 
     # Calculate the analytical solution for u
     ua = -2.0 * taud^3 * L^4 / (B^3 * H0^3)
@@ -131,7 +132,7 @@ function define_stream_schoof2006(dx;H0=1e3,rf=1e-16,α=1e-3,ρ=910.0,g=9.81,n_g
     # Calculate the till yield stress across the stream
     # and analytical velocity solution
     tau_c = taud .* abs.(yc ./ L).^m;
-    ux    = schoof2006_vel.(yc,taud,H0,B,L,W,m);
+    ux    = calc_schoof2006_vel.(yc,taud,H0,B,L,W,m);
 
     # Assign analytical values (tau_c as a boundary condition, ux as initial condition)
     c_bed = tau_c;
@@ -199,9 +200,16 @@ function solve_stream_schoof2006(an,dx;xmax=140e3,ymax=maximum(schf_an["yc"]),be
     taud_acx, taud_acy = calc_driving_stress(H,z_srf,dx,dx,an["ρ"],an["g"]);
 
     # Bed properties 
+    
+    interp_linear = linear_interpolation(an["yc"], an["c_bed"]);
+
     c_bed = fill(0.0,nx,ny);
-    for j = 1:ny
-        c_bed[:,j] .= an["c_bed"][j];
+
+    i = 1; 
+    c_bed[1,:] = interp_linear.(yc);
+
+    for i = 2:nx
+        c_bed[i,:] .= c_bed[1,:];
     end
 
     # Rate factor 
@@ -223,8 +231,14 @@ function solve_stream_schoof2006(an,dx;xmax=140e3,ymax=maximum(schf_an["yc"]),be
     uy    = fill(0.0,nx,ny);
     
     # Initialize solution to analytical result 
-    for j = 1:ny
-        ux[:,j] .= an["ux"][j];
+
+    interp_linear = linear_interpolation(an["yc"], an["ux"]);
+
+    i = 1; 
+    ux[1,:] = interp_linear.(yc);
+
+    for i = 2:nx
+        ux[i,:] .= ux[1,:];
     end
 
     # Relaxation weighting
@@ -345,92 +359,86 @@ plot_var2D(strm2["ux"])
 end
 ######################################
 
-if true
-## Test schoof2006 ##
-dxs = [4e3,8e3,16e3];
+begin
+    ## Test schoof2006 ##
 
-#schf_an = define_stream_schoof2006(dx;H0=1e3,rf=1e-16,α=1e-3,ρ=910.0,g=9.81,n_glen=3,W=25e3,m=1.55);
-#schf = solve_stream_schoof2006(schf_an,dx;n_iter=200,eps_0=1e-6);
+    # Get analytical solution
 
-if true
-# Following Berends et al (2022) parameters:
-dx = dxs[1];
-schf_an = define_stream_schoof2006(dx;H0=2e3,rf=1e-18,α=3e-4,ρ=910.0,g=9.81,n_glen=3,W=300e3,m=1.0);
-schf = solve_stream_schoof2006(schf_an,dx;n_iter=200,eps_0=1e-6);
-
-dx = dxs[2];
-schf_an_2 = define_stream_schoof2006(dx;H0=2e3,rf=1e-18,α=3e-4,ρ=910.0,g=9.81,n_glen=3,W=300e3,m=1.0);
-schf_2 = solve_stream_schoof2006(schf_an_2,dx;n_iter=200,eps_0=1e-6);
-
-dx = dxs[3];
-schf_an_3 = define_stream_schoof2006(dx;H0=2e3,rf=1e-18,α=3e-4,ρ=910.0,g=9.81,n_glen=3,W=300e3,m=1.0);
-schf_3 = solve_stream_schoof2006(schf_an_3,dx;n_iter=200,eps_0=1e-6);
-end
-
-fig = Figure(resolution=(1000,600))
-
-ax1  = Axis(fig[1,1],xlabel="y (km)",ylabel="x-velocity (m/yr)")
-xlims!(ax1,extrema(schf_an["yc"]).*1e-3)
-#ylims!(ax1,(0,1000))
-ylims!(ax1,extrema(schf_an["ux"]).*1.1)
-#ax1.yticks=0:100:2000;
-lines!(ax1,schf_an["yc"]*1e-3,schf_an["ux"],color=:grey60,linewidth=8,label="Analytical solution")
-imid = floor(Int,length(schf["xc"])/2);
-lines!(ax1,schf["yc"]*1e-3,schf["ux"][imid,:],color=:red,linewidth=4,label="Pagos")
-
-imid = floor(Int,length(schf_2["xc"])/2);
-lines!(ax1,schf_2["yc"]*1e-3,schf_2["ux"][imid,:],color=:red,linewidth=4,label="Pagos")
-
-imid = floor(Int,length(schf_3["xc"])/2);
-lines!(ax1,schf_3["yc"]*1e-3,schf_3["ux"][imid,:],color=:red,linewidth=4,label="Pagos")
-
-ax2  = Axis(fig[2,1],xlabel="y (km)",ylabel="Basal stress (kPa)")
-ylims!(ax2,(0,70))
-lines!(ax2,schf_an["yc"]*1e-3,schf_an["tau_c"]*1e-3,color=:grey60,linewidth=8,label="Analytical solution")
-imid = floor(Int,length(schf["xc"])/2);
-lines!(ax2,schf["yc"]*1e-3,schf["taub_acx"][imid,:]*1e-3,color=:red,linewidth=4,label="Pagos")
-
-ax3  = Axis(fig[1,2],xlabel="y (km)",ylabel="Viscosity (Pa yr)",yscale=log10)
-imid = floor(Int,length(schf["xc"])/2);
-lines!(ax3,schf["yc"]*1e-3,schf["μ"][imid,:],color=:red,linewidth=4,label="Pagos")
-
-save("test.pdf",fig)
-end
-
-
-
-
-
-########################################################################
-
-# To do: 1D numerical case translated from Matlab:
-
-function calc_vel_diva_1D!(ux,H,H0,mu,beta_sl,dx,ρ,g,α)
-    #calc_vel_ssa!(ux,uy,H,μ,taud_acx,taud_acy,β_acx,dx)
+    # Berends et al (2022) IMAU-ICE parameters
+    # The solver converges easily to this set of parameters
+    schf_an = define_stream_schoof2006(1e3;H0=2e3,rf=1e-18,α=3e-4,ρ=910.0,g=9.81,n_glen=3,W=300e3,m=1.0);
     
-    eta  = beta_sl*H0/mu; 
-    
-    rhs = ρ .* g .* (H[1:end-1] .+ H[2:end])./2 .* (diff(H)./dx .- α);
-    F2  = (H[1:end-1] .+ H[2:end]) ./ 2 ./ (3*eta);
-    B   = beta_sl ./ (1 .+ beta_sl .* F2);
-   
-    d0 = -B .- 4*eta*H[1:end-1]/dx^2 .- 4*eta*H[2:end]/dx^2;
-    dr = 4 * eta * H[2:end] / dx^2;
-    dl = 4 * eta * H[1:end-1] / dx^2;
-    #A = spdiags([dr d0 dl],[-1 0 1],N,N)'; 
-    A = spdiagm(-1 => dr, 0 => d0, 1 => dl);
-    #A[1,N] = dl[1];
-    #A[N,1] = dr[end];
-   
-    u = A\rhs;
+    # Lipscomb et al (2019) CISM parameters
+    # The solver does not converge easily to this set of parameters
+    #schf_an = define_stream_schoof2006(1e3;H0=1e3,rf=1e-16,α=1e-3,ρ=910.0,g=9.81,n_glen=3,W=25e3,m=1.55);
 
-    return
+    # Get numerical solutions
+
+    dxs  = [16e3,8e3,4e3];
+    schf = [];
+    
+    for k = eachindex(dxs)
+        dx = dxs[k];
+        tmp = solve_stream_schoof2006(schf_an,dx;n_iter=200,eps_0=1e-6);
+        push!(schf,tmp);
+    end
+
+    
+    ### Initialize figure ###
+
+    fig = Figure(resolution=(1000,600))
+
+    lwds = [4,3,2.5];
+    cols = [:pink,:red,:darkred];
+    
+    ## Panel 1: Velocity solution ## 
+
+    ax1  = Axis(fig[1,1],xlabel="y (km)",ylabel="x-velocity (m/yr)")
+    xlims!(ax1,extrema(schf_an["yc"]).*1e-3)
+    #ylims!(ax1,(0,1000))
+    ylims!(ax1,extrema(schf_an["ux"]).*1.1)
+    #ax1.yticks=0:100:2000;
+
+    # Analytical solution
+    lines!(ax1,schf_an["yc"]*1e-3,schf_an["ux"],color=:grey60,linewidth=8,label="Analytical solution")
+
+    # Numerical solutions
+    for k = eachindex(dxs)
+        dx = dxs[k]*1e-3;
+        i  = floor(Int,length(schf[k]["xc"])/2);
+        lines!(ax1,schf[k]["yc"]*1e-3,schf[k]["ux"][i,:],color=cols[k],linewidth=lwds[k],label="dx = $dx km")
+    end
+
+    ## Panel 2: Basal stress ##
+
+    ax2  = Axis(fig[2,1],xlabel="y (km)",ylabel="Basal stress (kPa)")
+    ylims!(ax2,(0,70))
+
+    # Analytical solution
+    lines!(ax2,schf_an["yc"]*1e-3,schf_an["tau_c"]*1e-3,color=:grey60,linewidth=8,label="Analytical solution")
+
+    # Numerical solutions
+    for k = eachindex(dxs)
+        dx = dxs[k]*1e-3;
+        i  = floor(Int,length(schf[k]["xc"])/2);
+        lines!(ax2,schf[k]["yc"]*1e-3,schf[k]["taub_acx"][i,:]*1e-3,color=cols[k],linewidth=lwds[k],label="dx = $dx km")
+    end
+
+    axislegend(ax2;position=:ct) 
+
+    ## Panel 3: Viscosity ##
+    ax3  = Axis(fig[1,2],xlabel="y (km)",ylabel="Viscosity (Pa yr)",yscale=log10)
+
+    # Numerical solutions
+    for k = eachindex(dxs)
+        dx = dxs[k]*1e-3;
+        i  = floor(Int,length(schf[k]["xc"])/2);
+        lines!(ax3,schf[k]["yc"]*1e-3,schf[k]["μ"][i,:],color=cols[k],linewidth=lwds[k],label="dx = $dx km")
+    end
+
+    save("test.pdf",fig)
 end
 
 
-#ux1D = ux[:,2];
-#H1D  = H[:,2];
-#calc_vel_diva_1D!(ux1D[1:end-1],H1D,an["H0"],an["μ0"],an["β0"],dx,an["ρ"],an["g"],an["α"])
-#println("ux1D: ", extrema(ux1D[1:end-1]))
 
 println("Done.")

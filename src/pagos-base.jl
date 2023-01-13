@@ -1,5 +1,5 @@
-using Parameters
-using NCDatasets 
+#using Parameters
+#using NCDatasets 
 
 using LinearSolve 
 using SparseArrays
@@ -638,7 +638,7 @@ end
 function calc_vel_ssa(ux,uy,H,μ,taud_acx,taud_acy,β_acx,β_acy,dx)
     # Calculate the diagnostic SSA velocity solution 
     # given ice thickness, viscosity, driving stress and basal friction coefficient
-    
+
     # Get some constants 
     nx, ny = size(H);
 
