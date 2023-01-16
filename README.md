@@ -1,4 +1,6 @@
-# Pagos.jl
+
+
+# Pagos.jl - Πάγος
 A pure Julia ice-sheet model
 
 
